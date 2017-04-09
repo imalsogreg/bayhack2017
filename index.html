@@ -20,12 +20,312 @@
 			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
 			document.getElementsByTagName( 'head' )[0].appendChild( link );
 		</script>
+    <style>
+        .reveal section img { background:none;
+                              border:none;
+                              box-shadow:none;
+                              max-height: 300px;}
+        .reveal h2, .reveal p { color: hsl(0,0%,75%); }
+        .reveal li { color: hsl(0, 0%, 75%);
+                     font-size: 20pt;}
+        .reveal h3 { // text-align: start;
+                     font-size: 20pt;
+                     text-transform: none;
+                     color: hsl(0,0%,75%);
+                     margin-top: 20px;
+                   }
+         // .reveal ul, .reveal li { text-align: start !important; }
+         section.left { text-align: left; }
+    </style>
 	</head>
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+				  <section data-markdown>
+              ## Full-stack, typesafe web programming in Haskell
+
+              ![](images/Haskell-Logo.svg)
+
+              Greg Hale *(Takt)* &ndash; BayHack 2017
+          </section>
+
+          <section>
+				  <section data-markdown class="left">
+              ## We &#10084; Types
+
+              ### For modeling data
+
+              ```haskell
+              -- | For modeling our data
+              data UserId = DriversLicense State
+                          | Passport Country
+                          | Token Text
+              ```
+
+              ### For modeling behavior & transformations
+              ```haskell
+              c :: Maybe DBConnection  -- Potentially-null db connection
+              x :: Dynamic t UserId    -- UserId that changes over time
+              ```
+
+              ### For modeling abstractions
+              ```haskell
+              ServerT EateryAPI ~ Handler [Eatery]
+              ```
+
+          </section>
+          <section data-markdown class="left">
+              ## Don't take away our types!
+
+              ### JSON can encode our UserID type nicely
+
+              ```javascript
+              // JSON is great for storing data
+              uid = { 'id_type': 'passport',
+                      'country': 'Mongolia'}
+              ```
+
+              ### But it's not very nice to program with
+
+              ```javascript
+              function useUserId(reg, uid) {
+                  if (allKindsOfStringValidation(uid){
+                      if (uid.id_type == "drivers_license") {
+                          reg.addId(uid);
+                      }
+                  } else {
+                      console.log("Invalid uid");
+              }
+              ```
+          </section>
+          <section data-markdown class="left">
+              ## Don't take away our types!
+
+              ### It's more comfortable to program against the ADT
+
+              ```haskell
+              -- Add uid to registry if it's a driver's license
+              useUserId :: UserId -> Registry -> Registry
+              useUserId u@(DriversLicense s) reg =
+                Map.insertWith (<>) s [u]
+              useUserId _ reg = reg
+              ```
+
+          </section>
+          </section>
+          <section data-markdown class="left" style="padding-left:50px;">
+              ## *DRY*ing between frontend and backend
+
+              ### The *Don't Repeat Yourself* principle
+              - Bugs thrive in moisture. Types and fn.'s should have a single source of truth
+
+              ### One option: Transpile to *elm*, *purescript*
+              - see Kris Jenkins' talk on YouTube: Types All the Way Down
+
+              ### The pure-Haskell approach:
+              - Pull types & core functions into a shared library
+              - **ghc** for backend, **ghcjs** for frontend specific code
+          </section>
+
+
+          <section data-markdown  class="left">
+              ## Haskell web app drying instructions
+
+              ### *Backend load*: Never compiled by **ghcjs**
+
+              - DB lookups, c ffi, encryption
+
+              ### *Frontend load*: Code that will only be compiled by **ghcjs**
+
+              - reflex-dom DOM actions
+
+              ### &#9733; *Common load* &#9733;
+
+              - Core datatypes, functions and servant APIs
+
+          </section>
+
+          <section data-markdown class="left">
+              ## Example: [soap.io](https://github.com/imalsogreg/soap.io)
+
+              ### `Soap` type and database
+
+              ### Servant API
+
+              - CRUD operations over Soaps
+              - Some business logic
+
+              ### Frontend UI
+
+              - CRUD operations
+              - Image-click color picker
+              - Estimation UI
+
+          </section>
+
+          <section data-markdown class="left" >
+              ## Sharing Objects
+
+              common/src/Soap.hs
+              ```haskell
+              data Soap = Soap {
+                soapName       :: Text
+              , soapDurability :: Double
+              , soapImgUrl     :: Text
+              , soapColors     :: SoapColors
+              } deriving (Eq, Ord, Show)
+              ```
+
+          </section>
+          <section data-markdown class="left" >
+              ## Sharing Objects
+
+              frontend/src/Main.hs
+
+              ```haskell
+              type DynamicV t a = Compose (Dynamic t) (Either Text) a
+
+              validInput :: (DomBuilder t m, ...)
+                         => (Text -> Either Text a)
+                         -> m (DynamicV t a)
+              validInput = ...
+              ```
+
+              ```haskell
+              ...
+              do nm  <- validInput validateName
+                 dr  <- validInput validateDura
+                 url <- validInput validateUrl
+
+                 let soap' :: DynamicV Soap
+                     soap' = Soap <$> nm <*> dr <*> url <*> pure defCol
+              ```
+          </section>
+          <section data-markdown class="left">
+              ## Sharing functions
+
+              common/src/Soap.hs
+
+              ```haskell
+              -- | Estimate the optimal L,W,H for a bar of soap
+              optimalSoapSize
+                  :: Soap   -- ^ Soap
+                  -> Double -- ^ Shower length
+                  -> Double -- ^ Budget constraint
+                  -> Double -- ^ Optimization accuracy
+                  -> (Double, Double, Double)
+              optimalSoapSize (Soap _ dura _ _) showerLen budget resl =
+                  minimumBy (comparing cost) samples
+                where
+                  grid    = [1, 1 + resl .. 5]  -- One dim sample spacing
+                  samples = [(l,w, 5/l/w) | l <- grid , w <- grid]
+                  cost (l,w,h) = (2 - (w/h))^2 / budget + dura / h / w
+              ```
+          </section>
+          <section data-markdown class="left">
+              ## Sharing APIs
+
+              common/src/Soap/API.hs
+              ```haskell
+              type EstimationAPI =
+                   Capture "id" (EKey Soap)
+                   :> QueryParam "shower-length" Double
+                   :> QueryParam "budget" Double
+                   :> Get '[JSON] (Double,Double,Double)
+
+              type API = "soap" :> CRUD Soap
+                         :<|> "estimate" :> EstimationAPI
+                         :<|> "color" :> ColorAPI
+              ```
+          </section>
+          <section data-markdown class="left">
+              ## Sharing APIs
+
+              backend/src/Server.hs
+              ```haskell
+              app :: SnapletInit App App
+              app = makeSnaplet "app" "Example" Nothing $ do
+                ...
+                addRoutes [("api", serveSnap (Proxy @API) serveAPI)
+                          ,("",    serveDirectory "static"]
+              ```
+          </section>
+          <section class="left" >
+              <h2 id="sharing-apis">Sharing APIs</h2>
+
+              <h3 id="-servant-reflex-frp-funused" ><em>servant-reflex</em>: FRP-focused functions <em>servant</em> APIs</h3>
+
+              <pre>
+              :>               | ->
+              :<|>             | :<|>
+              Capture s a      | Dynamic t (Either Text a)
+              QueryParam n a   | Dynamic t (QParam a)
+              Get cs a         | Event t ()
+                (Post/Put/)    |  -> m (Event t (ReqResult () a)
+              </pre>
+
+              <pre><code class="lang-haskell hljs" >data QParam a = QParamSome a -- ^ Like `Right a`
+              | QNone        -- ^ Param intentionally absent
+              | QParamInvalid Text</code></pre>
+
+          </section>
+          <section class="left"  data-markdown>
+              ## Sharing APIs
+
+              ### *servant-reflex*: FRP-focused functions *servant* APIs
+
+              ```haskell
+              type EstimationAPI =
+                   Capture "id" Int
+                   :> QueryParam "budget" Double
+                   :> QueryParam "shower-length" Double
+                   :> Get '[JSON] (Double,Double,Double)
+              ```
+              ```haskell
+              myEstimate :: Dynamic t (Either Text Int)
+                         -> Dynamic t (QParam Double)
+                         -> Dynamic t (QParam Double)
+                         -> Event t ()
+                         -> m (Event t (ReqResult () (Double,Double,Double))
+              myEstimate = client (Proxy @EstimationAPI)
+                           (Proxy @m) (Proxy @()) baseUrl
+              ```
+          </section>
+          <section class="left">
+              <h2><del>Pain-points</del> Ongoing work</h2>
+              <ul>
+                  <li>
+                      Difficult type errors (<em>servant-api-check</em>)
+                  </li>
+                  <li>
+                      SPA routing (<em>reflex-dom-contrib</em>, <em>servant-render</em>) &amp;<br/>Generic forms (adamConnerSaxe's <em>reflex-utils</em>)
+                  </li>
+                  <li>
+                      Dynamic params / Event trigger API can be awkward<br/>
+                      sometimes you want this: <pre><code class="lang-haskell hljs">Event m (a, b) -> m (Event (ReqResult () c))</code></pre>
+                  </li>
+                  <li>
+                      Shared-library as a dependency, annoying context switches
+                  </li>
+                  <li>
+                      Bleeding-edge stuff with several dependencies not yet on hackage<br/>
+                      Tooling can be tricky, best to use nix &amp; reflex-platform
+                  </li>
+              </ul>
+
+          </section>
+          <section class="left" data-markdown>
+              ## Take-home messages
+
+              ### Writing the whole application in Haskell is practical, fun and typesafe
+
+              ### You can use soap.io and hsnippet as examples of how to organize code for sharing
+
+              ### Questions? Get in touch (imalsogreg@gmail.com)
+
+              ### Hang out in #reflex-frp and #servant IRC channels
+
+          </section>
 			</div>
 		</div>
 
@@ -36,7 +336,7 @@
 			// More info https://github.com/hakimel/reveal.js#configuration
 			Reveal.initialize({
 				history: true,
-
+        center: false,
 				// More info https://github.com/hakimel/reveal.js#dependencies
 				dependencies: [
 					{ src: 'plugin/markdown/marked.js' },
